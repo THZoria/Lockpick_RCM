@@ -37,6 +37,14 @@ jobs:
         id: tagcheck
         run: |
           version=${{ steps.version.outputs.version }}
+
+          # Autoriser ce dossier Git
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+
+          # Reconfigurer le remote origin avec authentification
+          git remote remove origin || true
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+
           if git ls-remote --tags origin | grep -q "refs/tags/$version"; then
             echo "Tag $version already exists."
             echo "should_release=false" >> $GITHUB_OUTPUT
