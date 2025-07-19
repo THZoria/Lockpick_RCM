@@ -3,7 +3,7 @@ name: Auto Build and Release on Commit
 on:
   push:
     branches:
-      - main
+      - main  # change si tu travailles sur une autre branche
 
 jobs:
   build:
@@ -13,14 +13,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install devkitPro and dependencies
+      - name: Install devkitPro and devkitARM
         run: |
           sudo apt update
-          sudo apt install -y devkitpro-pacman
+          sudo apt install -y wget gnupg
+          sudo wget https://apt.devkitpro.org/install-devkitpro-pacman
+          sudo bash install-devkitpro-pacman
           sudo dkp-pacman -Syu --noconfirm
           sudo dkp-pacman -S --noconfirm devkitARM
 
-      - name: Set DEVKITARM env
+      - name: Set DEVKITARM environment variable
         run: echo "DEVKITARM=/opt/devkitpro/devkitARM" >> $GITHUB_ENV
 
       - name: Extract version from Version.inc
@@ -32,7 +34,7 @@ jobs:
           version="$major.$minor.$bugfx"
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      - name: Build project
+      - name: Build the project
         run: make
 
       - name: Check and create tag if needed
@@ -65,13 +67,14 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           name: Release ${{ steps.version.outputs.version }}
           body: |
-            Changes:
+            Changelog:
+
             ${{ steps.changelog.outputs.message }}
           files: Lockpick_RCM.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload binary as artifact
+      - name: Upload compiled binary as artifact
         uses: actions/upload-artifact@v4
         with:
           name: Lockpick_RCM-${{ steps.version.outputs.version }}
