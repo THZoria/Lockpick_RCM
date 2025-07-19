@@ -1,4 +1,4 @@
-name: Auto Build and Release
+name: Auto Build, Tag and Release
 
 on:
   push:
@@ -19,42 +19,45 @@ jobs:
       - name: Install native build tools (gcc/make)
         run: |
           apt-get update
-          apt-get install -y build-essential
+          apt-get install -y build-essential git
 
-      - name: Extract version from Version.inc
+      - name: Get latest version and compute next tag
         id: version
         run: |
-          major=$(grep 'LPVERSION_MAJOR' Version.inc | cut -d:= -f2 | tr -d ' ')
-          minor=$(grep 'LPVERSION_MINOR' Version.inc | cut -d:= -f2 | tr -d ' ')
-          bugfx=$(grep 'LPVERSION_BUGFX' Version.inc | cut -d:= -f2 | tr -d ' ')
-          version="$major.$minor.$bugfx"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          # Reconfigurer le remote (nécessaire pour fetch complet)
+          git remote remove origin || true
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git fetch --tags
+
+          # Dernier tag 1.9.x
+          last_tag=$(git tag --list "1.9.*" --sort=-v:refname | head -n1)
+
+          if [ -z "$last_tag" ]; then
+            version="1.9.15"
+          else
+            major=$(echo "$last_tag" | cut -d. -f1)
+            minor=$(echo "$last_tag" | cut -d. -f2)
+            patch=$(echo "$last_tag" | cut -d. -f3)
+            next_patch=$((patch + 1))
+            version="$major.$minor.$next_patch"
+          fi
+
+          echo "Version calculée : $version"
           echo "version=$version" >> $GITHUB_OUTPUT
 
       - name: Build the project
         run: make
 
-      - name: Check and create tag if needed
-        id: tagcheck
+      - name: Tag and push
         run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
           version=${{ steps.version.outputs.version }}
-
-          # Autoriser ce dossier Git
-          git config --global --add safe.directory $GITHUB_WORKSPACE
-
-          # Reconfigurer le remote origin avec authentification
-          git remote remove origin || true
-          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-
-          if git ls-remote --tags origin | grep -q "refs/tags/$version"; then
-            echo "Tag $version already exists."
-            echo "should_release=false" >> $GITHUB_OUTPUT
-          else
-            git config --global user.name "github-actions"
-            git config --global user.email "github-actions@github.com"
-            git tag "$version"
-            git push origin "$version"
-            echo "should_release=true" >> $GITHUB_OUTPUT
-          fi
+          git tag "$version"
+          git push origin "$version"
 
       - name: Get latest commit message
         id: changelog
@@ -65,7 +68,6 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
-        if: steps.tagcheck.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
