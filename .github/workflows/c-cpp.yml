@@ -1,0 +1,34 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - '1.9.*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install devkitPro and build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y devkitpro-pacman
+          sudo dkp-pacman -Syu --noconfirm
+          sudo dkp-pacman -S --noconfirm devkitARM
+
+      - name: Set DEVKITARM environment variable
+        run: echo "DEVKITARM=/opt/devkitpro/devkitARM" >> $GITHUB_ENV
+
+      - name: Build with make
+        run: make
+
+      - name: Upload binary to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Lockpick_RCM.bin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
