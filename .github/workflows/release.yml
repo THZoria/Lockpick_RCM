@@ -1,9 +1,9 @@
-name: Build and Release
+name: Auto Build and Release on Commit
 
 on:
   push:
-    tags:
-      - '1.9.*'
+    branches:
+      - main
 
 jobs:
   build:
@@ -13,22 +13,66 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install devkitPro and build dependencies
+      - name: Install devkitPro and dependencies
         run: |
           sudo apt update
           sudo apt install -y devkitpro-pacman
           sudo dkp-pacman -Syu --noconfirm
           sudo dkp-pacman -S --noconfirm devkitARM
 
-      - name: Set DEVKITARM environment variable
+      - name: Set DEVKITARM env
         run: echo "DEVKITARM=/opt/devkitpro/devkitARM" >> $GITHUB_ENV
 
-      - name: Build with make
+      - name: Extract version from Version.inc
+        id: version
+        run: |
+          major=$(grep 'LPVERSION_MAJOR' Version.inc | cut -d:= -f2 | tr -d ' ')
+          minor=$(grep 'LPVERSION_MINOR' Version.inc | cut -d:= -f2 | tr -d ' ')
+          bugfx=$(grep 'LPVERSION_BUGFX' Version.inc | cut -d:= -f2 | tr -d ' ')
+          version="$major.$minor.$bugfx"
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Build project
         run: make
 
-      - name: Upload binary to GitHub Release
+      - name: Check and create tag if needed
+        id: tagcheck
+        run: |
+          version=${{ steps.version.outputs.version }}
+          if git ls-remote --tags origin | grep -q "refs/tags/$version"; then
+            echo "Tag $version already exists."
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git tag "$version"
+            git push origin "$version"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get latest commit message
+        id: changelog
+        run: |
+          message=$(git log -1 --pretty=%B)
+          echo "message<<EOF" >> $GITHUB_OUTPUT
+          echo "$message" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.tagcheck.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            Changes:
+            ${{ steps.changelog.outputs.message }}
           files: Lockpick_RCM.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lockpick_RCM-${{ steps.version.outputs.version }}
+          path: Lockpick_RCM.bin
